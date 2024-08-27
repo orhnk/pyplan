@@ -12,3 +12,11 @@ exists.
 
 Before using pyplan, you need to complete these API instuctions from
 [Google](https://developers.google.com/calendar/api/quickstart/python).
+
+## Development
+
+This project is developed using Nix Package Manager.
+
+### shell.nix
+
+Run `nix-shell` to enter the development environment.
