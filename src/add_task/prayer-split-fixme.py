@@ -95,7 +95,7 @@ def add_event_to_calendar(service, prayer_name, start_time, end_time, color_id):
 
 
 def get_user_color_scheme():
-    """Allow         user to define a color scheme using human-readable color names."""
+    """Allow user to define a color scheme using human-readable color names."""
     print("Available colors: " + ", ".join(COLORS.values()))
     color_scheme = {
         "Sabah": "Lavender",
@@ -118,6 +118,58 @@ def get_user_color_scheme():
     }
 
     return color_scheme_with_ids
+
+
+def fetch_events(service, start_time, end_time):
+    """Fetch events from Google Calendar within a time range."""
+    try:
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=start_time,
+                timeMax=end_time,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        return events_result.get("items", [])
+    except HttpError as error:
+        print(f"An error occurred while fetching events: {error}")
+        return []
+
+
+def detect_collision(service, task_start_time, task_end_time):
+    """Check for collisions with existing events in the calendar."""
+    events = fetch_events(service, task_start_time, task_end_time)
+    return events  # Return all events that overlap with the time window
+
+
+def split_event(service, event, prayer_start_time, prayer_end_time):
+    """Split an event into two, one before and one after the prayer."""
+    event_start = event["start"]["dateTime"]
+    event_end = event["end"]["dateTime"]
+
+    # Create the first part of the event (before the prayer)
+    if event_start < prayer_start_time:
+        updated_event = {
+            "summary": event["summary"],
+            "start": {"dateTime": event_start, "timeZone": "Europe/Istanbul"},
+            "end": {"dateTime": prayer_start_time, "timeZone": "Europe/Istanbul"},
+        }
+        service.events().insert(calendarId="primary", body=updated_event).execute()
+        print(f"Event split: {event['summary']} (before prayer)")
+
+    # Create the second part of the event (after the prayer)
+    if event_end > prayer_end_time:
+        updated_event = {
+            "summary": event["summary"],
+            "start": {"dateTime": prayer_end_time, "timeZone": "Europe/Istanbul"},
+            "end": {"dateTime": event_end, "timeZone": "Europe/Istanbul"},
+        }
+        service.events().insert(calendarId="primary", body=updated_event).execute()
+        print(f"Event split: {event['summary']} (after prayer)")
 
 
 def main():
@@ -162,17 +214,27 @@ def main():
 
                 # Format times for Google Calendar API
                 today = datetime.now().date()
-                task_start_time = datetime.combine(
-                    today, task_start_time.time()
-                ).isoformat()
-                task_end_time = datetime.combine(
-                    today, task_end_time.time()
-                ).isoformat()
+                task_start_time = (
+                    datetime.combine(today, task_start_time.time()).isoformat() + "Z"
+                )
+                task_end_time = (
+                    datetime.combine(today, task_end_time.time()).isoformat() + "Z"
+                )
 
                 # Fetch color ID for this prayer from the color scheme
                 color_id = color_scheme[prayer_data["name"]]
 
-                # Add event to Google Calendar with the chosen color
+                # Detect collisions with existing events
+                colliding_events = detect_collision(
+                    service, task_start_time, task_end_time
+                )
+
+                if colliding_events:
+                    # Split all colliding events
+                    for event in colliding_events:
+                        split_event(service, event, task_start_time, task_end_time)
+
+                # Add prayer event to Google Calendar with the chosen color
                 add_event_to_calendar(
                     service, prayer_name, task_start_time, task_end_time, color_id
                 )
