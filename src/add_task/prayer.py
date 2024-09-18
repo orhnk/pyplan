@@ -29,18 +29,18 @@ COLORS = {
     "Tomato": "11",
 }
 
-# Prayer color scheme mapped by prayer names
+# Prayer color scheme mapped by prayer names, including Sunrise
 PRAYER_COLOR_SCHEME = {
-    "Sabah": COLORS["Lavender"],
+    "Sabah": COLORS["Lavender"],  # Using "Güneş" for Sunrise
     "Öğle": COLORS["Sage"],
     "İkindi": COLORS["Grape"],
     "Akşam": COLORS["Flamingo"],
     "Yatsı": COLORS["Banana"],
 }
 
-# Map for English to Turkish prayer names
+# Map for English to Turkish prayer names, including Sunrise
 TURKISH_PRAYER_NAMES = {
-    "Fajr": "Sabah",
+    "Sunrise": "Sabah",
     "Dhuhr": "Öğle",
     "Asr": "İkindi",
     "Maghrib": "Akşam",
@@ -123,7 +123,15 @@ def schedule_prayer_events(service, prayer_times):
         task_start = datetime.combine(today, prayer_time) - timedelta(
             minutes=TASK_DURATION_MINUTES // 3
         )
+
         task_end = task_start + timedelta(minutes=TASK_DURATION_MINUTES)
+
+        print(prayer_key)
+        if prayer_key == "Sunrise":
+            task_start = task_start - timedelta(
+                minutes=TASK_DURATION_MINUTES / 3 + TASK_DURATION_MINUTES
+            )
+            task_end = prayer_time
 
         # Format the times as required by the Google Calendar API
         task_start_iso = task_start.isoformat()
