@@ -38,16 +38,15 @@ def get_events_for_date(service, date):
     return events_result.get("items", [])
 
 
-def delete_events_for_today(service):
-    """Delete all events for today."""
-    today = datetime.datetime.now(tz=datetime.timezone.utc).date()
-    today_start = (
-        datetime.datetime.combine(today, datetime.time.min)
+def delete_events_for_date(service, target_date):
+    """Delete all events for a specified date."""
+    target_start = (
+        datetime.datetime.combine(target_date, datetime.time.min)
         .replace(tzinfo=datetime.timezone.utc)
         .isoformat()
     )
-    today_end = (
-        datetime.datetime.combine(today, datetime.time.max)
+    target_end = (
+        datetime.datetime.combine(target_date, datetime.time.max)
         .replace(tzinfo=datetime.timezone.utc)
         .isoformat()
     )
@@ -56,8 +55,8 @@ def delete_events_for_today(service):
         service.events()
         .list(
             calendarId="primary",
-            timeMin=today_start,
-            timeMax=today_end,
+            timeMin=target_start,
+            timeMax=target_end,
             singleEvents=True,
             orderBy="startTime",
         )
@@ -70,16 +69,14 @@ def delete_events_for_today(service):
         print(f"Deleted event: {event.get('summary', 'No Title')}")
 
 
-def copy_events_to_today(service, events):
-    """Copy events to today while keeping their time frames and colors."""
-    today = datetime.datetime.now(tz=datetime.timezone.utc).date()
-
+def copy_events_to_date(service, events, target_date):
+    """Copy events to a specified target date while keeping their time frames and colors."""
     for event in events:
         original_start = parser.isoparse(event["start"]["dateTime"])
         original_end = parser.isoparse(event["end"]["dateTime"])
 
-        # Calculate the time delta (difference in days) between the original start date and today
-        delta_days = (today - original_start.date()).days
+        # Calculate the time delta (difference in days) between the original start date and the target date
+        delta_days = (target_date - original_start.date()).days
 
         # Apply the delta to get the new start and end times
         new_start = original_start + datetime.timedelta(days=delta_days)
@@ -101,7 +98,7 @@ def copy_events_to_today(service, events):
             created_event = (
                 service.events().insert(calendarId="primary", body=event_copy).execute()
             )
-            print(f"Copied event: {created_event.get('summary')} to today")
+            print(f"Copied event: {created_event.get('summary')} to {target_date}")
         except HttpError as error:
             print(f"An error occurred while copying events: {error}")
 
@@ -115,6 +112,9 @@ def parse_date_input(date_input):
         return today + datetime.timedelta(days=1)
     elif date_input.lower() in ["yesterday", "y"]:
         return today - datetime.timedelta(days=1)
+    elif not date_input:
+        # If the input is empty, default to today
+        return today
     else:
         try:
             # Attempt to parse the date input
@@ -158,11 +158,19 @@ def main():
             print("No events found on the specified date to copy.")
             return
 
-        # Delete today's events before copying
-        delete_events_for_today(service)
+        # Get user input for the target date (defaulting to today if blank)
+        copy_to_date_input = input(
+            "Enter the target date to copy events to (or press Enter to copy to today): "
+        )
+        copy_to_date = parse_date_input(copy_to_date_input)
+        if copy_to_date is None:
+            return
 
-        # Copy events to today
-        copy_events_to_today(service, events_to_copy)
+        # Delete events on the target date before copying
+        delete_events_for_date(service, copy_to_date)
+
+        # Copy events to the target date
+        copy_events_to_date(service, events_to_copy, copy_to_date)
 
     except HttpError as error:
         print(f"An error occurred: {error}")
