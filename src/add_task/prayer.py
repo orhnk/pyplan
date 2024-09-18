@@ -1,4 +1,4 @@
-import os.path
+import os
 from datetime import datetime, timedelta
 
 import requests
@@ -8,79 +8,73 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# Define task_duration as a static variable (in minutes)
-task_duration = 15  # Set to 15 minutes
-
-# SCOPES for Google Calendar API access
+# Configuration constants
+TASK_DURATION_MINUTES = 15  # Event duration in minutes
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
+DEFAULT_TIMEZONE = "Europe/Istanbul"
+API_BASE_URL = "http://api.aladhan.com/v1/timingsByCity"
 
-# Predefined Google Calendar colors (1-11) and their human-readable names
+# Predefined Google Calendar color names mapped to color IDs
 COLORS = {
-    "1": "Lavender",
-    "2": "Sage",
-    "3": "Grape",
-    "4": "Flamingo",
-    "5": "Banana",
-    "6": "Tangerine",
-    "7": "Peacock",
-    "8": "Graphite",
-    "9": "Blueberry",
-    "10": "Basil",
-    "11": "Tomato",
+    "Lavender": "1",
+    "Sage": "2",
+    "Grape": "3",
+    "Flamingo": "4",
+    "Banana": "5",
+    "Tangerine": "6",
+    "Peacock": "7",
+    "Graphite": "8",
+    "Blueberry": "9",
+    "Basil": "10",
+    "Tomato": "11",
 }
 
-# Reverse the COLORS dictionary to map color names to their IDs
-COLOR_NAME_TO_ID = {v: k for k, v in COLORS.items()}
+# Prayer color scheme mapped by prayer names
+PRAYER_COLOR_SCHEME = {
+    "Sabah": COLORS["Lavender"],
+    "Öğle": COLORS["Sage"],
+    "İkindi": COLORS["Grape"],
+    "Akşam": COLORS["Flamingo"],
+    "Yatsı": COLORS["Banana"],
+}
+
+# Map for English to Turkish prayer names
+TURKISH_PRAYER_NAMES = {
+    "Fajr": "Sabah",
+    "Dhuhr": "Öğle",
+    "Asr": "İkindi",
+    "Maghrib": "Akşam",
+    "Isha": "Yatsı",
+}
 
 
 def get_prayer_times(city="Istanbul", country="Turkey"):
     """Fetch prayer times from the Aladhan API for a specific location."""
-    api_url = f"http://api.aladhan.com/v1/timingsByCity?city={city}&country={country}&method=2"
-
     try:
-        response = requests.get(api_url)
+        response = requests.get(
+            f"{API_BASE_URL}?city={city}&country={country}&method=2"
+        )
         response.raise_for_status()
 
-        data = response.json()
-        prayer_times = data["data"]["timings"]
-
-        turkish_prayers = {
-            "Fajr": "Sabah",
-            "Dhuhr": "Öğle",
-            "Asr": "İkindi",
-            "Maghrib": "Akşam",
-            "Isha": "Yatsı",
+        data = response.json()["data"]["timings"]
+        return {
+            prayer: {"name": TURKISH_PRAYER_NAMES[prayer], "time": time}
+            for prayer, time in data.items()
+            if prayer in TURKISH_PRAYER_NAMES
         }
 
-        print("Bugünün namaz vakitleri:")
-        filtered_prayers = {}
-        for prayer, turkish_name in turkish_prayers.items():
-            print(f"{turkish_name} Namazı: {prayer_times[prayer]}")
-            filtered_prayers[prayer] = {
-                "name": turkish_name,
-                "time": prayer_times[prayer],
-            }
-
-        return filtered_prayers
-
-    except requests.exceptions.RequestException as e:
-        print(f"Bir hata oluştu: {e}")
+    except requests.RequestException as e:
+        print(f"Error fetching prayer times: {e}")
         return None
 
 
 def add_event_to_calendar(service, prayer_name, start_time, end_time, color_id):
-    """Add an event to Google Calendar with color."""
+    """Add an event to Google Calendar."""
     event = {
         "summary": prayer_name,
-        "start": {
-            "dateTime": start_time,
-            "timeZone": "Europe/Istanbul",  # Adjust as needed
-        },
-        "end": {
-            "dateTime": end_time,
-            "timeZone": "Europe/Istanbul",  # Adjust as needed
-        },
-        "colorId": color_id,  # Set the color for the event
+        "start": {"dateTime": start_time, "timeZone": DEFAULT_TIMEZONE},
+        "end": {"dateTime": end_time, "timeZone": DEFAULT_TIMEZONE},
+        "colorId": color_id,
     }
 
     try:
@@ -88,94 +82,77 @@ def add_event_to_calendar(service, prayer_name, start_time, end_time, color_id):
             service.events().insert(calendarId="primary", body=event).execute()
         )
         print(
-            f"Event created: {event_result['summary']} at {start_time} to {end_time} with color ID: {color_id}"
+            f"Created event: {event_result['summary']} from {start_time} to {end_time} with color ID: {color_id}"
         )
     except HttpError as error:
-        print(f"An error occurred: {error}")
+        print(f"Error adding event to calendar: {error}")
 
 
-def get_user_color_scheme():
-    """Allow         user to define a color scheme using human-readable color names."""
-    print("Available colors: " + ", ".join(COLORS.values()))
-    color_scheme = {
-        "Sabah": "Lavender",
-        "Öğle": "Sage",
-        "İkindi": "Grape",
-        "Akşam": "Flamingo",
-        "Yatsı": "Banana",
-    }
-
-    # Convert color names to their corresponding color IDs
-    for prayer, color_name in color_scheme.items():
-        if color_name not in COLOR_NAME_TO_ID:
-            print(f"Invalid color name for {prayer}, using default 'Lavender'.")
-            color_scheme[prayer] = "Lavender"  # Default to Lavender if invalid input
-
-    # Replace color names with color IDs
-    color_scheme_with_ids = {
-        prayer: COLOR_NAME_TO_ID[color_name]
-        for prayer, color_name in color_scheme.items()
-    }
-
-    return color_scheme_with_ids
-
-
-def main():
-    """Main function to fetch prayer times, create tasks around them, and apply colors."""
+def authenticate_google_calendar():
+    """Authenticate and return Google Calendar API service."""
     creds = None
-    if os.path.exists("secrets/cal-token.json"):
-        creds = Credentials.from_authorized_user_file("secrets/cal-token.json", SCOPES)
+    token_path = "secrets/cal-token.json"
+    creds_path = "secrets/credentials.json"
 
+    # Check if token file exists
+    if os.path.exists(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+
+    # If no valid credentials are available, login
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                "secrets/credentials.json", SCOPES
-            )
+            flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open("secrets/cal-token.json", "w") as token:
-            token.write(creds.to_json())
+        with open(token_path, "w") as token_file:
+            token_file.write(creds.to_json())
 
+    return build("calendar", "v3", credentials=creds)
+
+
+def schedule_prayer_events(service, prayer_times):
+    """Create and add prayer events to the calendar."""
+    today = datetime.now().date()
+
+    for prayer_key, prayer_data in prayer_times.items():
+        prayer_name = f"{prayer_data['name']} Namazı"
+        prayer_time = datetime.strptime(prayer_data["time"], "%H:%M").time()
+
+        # Calculate start and end times for the event
+        task_start = datetime.combine(today, prayer_time) - timedelta(
+            minutes=TASK_DURATION_MINUTES // 3
+        )
+        task_end = task_start + timedelta(minutes=TASK_DURATION_MINUTES)
+
+        # Format the times as required by the Google Calendar API
+        task_start_iso = task_start.isoformat()
+        task_end_iso = task_end.isoformat()
+
+        # Fetch the color ID for the event
+        color_id = PRAYER_COLOR_SCHEME.get(
+            prayer_data["name"], COLORS["Lavender"]
+        )  # Default to Lavender if not found
+
+        # Add the event to Google Calendar
+        add_event_to_calendar(
+            service, prayer_name, task_start_iso, task_end_iso, color_id
+        )
+
+
+def main():
+    """Main function to fetch prayer times, set up Google Calendar events."""
     try:
-        # Build Google Calendar service
-        service = build("calendar", "v3", credentials=creds)
+        service = authenticate_google_calendar()
 
-        # Fetch prayer times
+        # Fetch today's prayer times
         prayer_times = get_prayer_times(city="Istanbul", country="Turkey")
+        if not prayer_times:
+            print("No prayer times available.")
+            return
 
-        # Get the user's color scheme for each prayer
-        color_scheme = get_user_color_scheme()
-
-        # Calculate and add events to calendar with colors
-        if prayer_times:
-            for prayer_key, prayer_data in prayer_times.items():
-                prayer_name = prayer_data["name"] + " Namazı"
-
-                # Convert prayer time to datetime object
-                prayer_time_str = prayer_data["time"]
-                prayer_time = datetime.strptime(prayer_time_str, "%H:%M")
-
-                # Calculate task start and end times
-                task_start_time = prayer_time - timedelta(minutes=(task_duration // 3))
-                task_end_time = prayer_time + timedelta(minutes=task_duration)
-
-                # Format times for Google Calendar API
-                today = datetime.now().date()
-                task_start_time = datetime.combine(
-                    today, task_start_time.time()
-                ).isoformat()
-                task_end_time = datetime.combine(
-                    today, task_end_time.time()
-                ).isoformat()
-
-                # Fetch color ID for this prayer from the color scheme
-                color_id = color_scheme[prayer_data["name"]]
-
-                # Add event to Google Calendar with the chosen color
-                add_event_to_calendar(
-                    service, prayer_name, task_start_time, task_end_time, color_id
-                )
+        # Schedule prayer events with colors
+        schedule_prayer_events(service, prayer_times)
 
     except HttpError as error:
         print(f"An error occurred: {error}")
