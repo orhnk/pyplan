@@ -111,9 +111,47 @@ def authenticate_google_calendar():
     return build("calendar", "v3", credentials=creds)
 
 
+def fetch_existing_events(service, date):
+    """Fetch existing events for the day from Google Calendar."""
+    start_of_day = datetime.combine(date, datetime.min.time()).isoformat() + "Z"
+    end_of_day = datetime.combine(date, datetime.max.time()).isoformat() + "Z"
+
+    try:
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=start_of_day,
+                timeMax=end_of_day,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        return events_result.get("items", [])
+
+    except HttpError as error:
+        print(f"Error fetching existing events: {error}")
+        return []
+
+
+import pytz  # Import pytz for timezone conversion
+
+
+def is_time_overlapping(start1, end1, start2, end2):
+    """Check if two time ranges overlap."""
+    return max(start1, start2) < min(end1, end2)
+
+
 def schedule_prayer_events(service, prayer_times):
-    """Create and add prayer events to the calendar."""
+    """Create and add prayer events to the calendar with collision detection."""
     today = datetime.now().date()
+
+    # Fetch existing events for the day
+    existing_events = fetch_existing_events(service, today)
+
+    # Get the timezone object for the default timezone
+    tz = pytz.timezone(DEFAULT_TIMEZONE)
 
     for prayer_key, prayer_data in prayer_times.items():
         prayer_name = f"{prayer_data['name']} Namazı"
@@ -136,18 +174,28 @@ def schedule_prayer_events(service, prayer_times):
             )
             task_end = task_start + timedelta(minutes=TASK_DURATION_MINUTES)
 
-        # Format the times as required by the Google Calendar API
-        task_start_iso = task_start.isoformat()
-        task_end_iso = task_end.isoformat()
+        # Convert task_start and task_end to timezone-aware datetimes
+        task_start = tz.localize(task_start)
+        task_end = tz.localize(task_end)
 
         # Fetch the color ID for the event
         color_id = PRAYER_COLOR_SCHEME.get(
             prayer_data["name"], COLORS["Lavender"]
         )  # Default to Lavender if not found
 
+        # Check for collisions with existing events
+        for event in existing_events:
+            existing_start = datetime.fromisoformat(event["start"]["dateTime"])
+            existing_end = datetime.fromisoformat(event["end"]["dateTime"])
+
+            if is_time_overlapping(task_start, task_end, existing_start, existing_end):
+                print(
+                    f"Event '{event['summary']}' is colliding with prayer '{prayer_name}'"
+                )
+
         # Add the event to Google Calendar
         add_event_to_calendar(
-            service, prayer_name, task_start_iso, task_end_iso, color_id
+            service, prayer_name, task_start.isoformat(), task_end.isoformat(), color_id
         )
 
 
