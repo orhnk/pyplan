@@ -123,15 +123,18 @@ def schedule_prayer_events(service, prayer_times):
         task_start = datetime.combine(today, prayer_time) - timedelta(
             minutes=TASK_DURATION_MINUTES // 3
         )
-
         task_end = task_start + timedelta(minutes=TASK_DURATION_MINUTES)
 
-        print(prayer_key)
         if prayer_key == "Sunrise":
-            task_start = task_start - timedelta(
-                minutes=TASK_DURATION_MINUTES / 3 + TASK_DURATION_MINUTES
+            # Special case for Fajr (Sabah) to align it just before sunrise
+            sunrise_time = datetime.strptime(
+                prayer_times["Sunrise"]["time"], "%H:%M"
+            ).time()
+
+            task_start = datetime.combine(today, sunrise_time) - timedelta(
+                minutes=TASK_DURATION_MINUTES * 2
             )
-            task_end = prayer_time
+            task_end = task_start + timedelta(minutes=TASK_DURATION_MINUTES)
 
         # Format the times as required by the Google Calendar API
         task_start_iso = task_start.isoformat()
