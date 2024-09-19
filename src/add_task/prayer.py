@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta
 
+import pytz
 import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -133,9 +134,6 @@ def fetch_existing_events(service, date):
     except HttpError as error:
         print(f"Error fetching existing events: {error}")
         return []
-
-
-import pytz  # Import pytz for timezone conversion
 
 
 def is_time_overlapping(start1, end1, start2, end2):
